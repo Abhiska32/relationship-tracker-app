@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Relationship Tracker icon">
+  <rect width="512" height="512" rx="104" fill="#111827" />
+  <path d="M155 189c0-50 40-90 90-90h22c50 0 90 40 90 90v25c0 56-40 96-90 110-50-14-90-54-90-110v-25Z" fill="#f59e0b" />
+  <path d="M149 333c0-47 42-81 107-81s107 34 107 81v34H149v-34Z" fill="#f8fafc" />
+</svg>
