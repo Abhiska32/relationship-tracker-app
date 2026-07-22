@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import AuthGate from "./auth/AuthGate";
 import {
   Heart,
   Music2,
@@ -345,6 +346,7 @@ export default function App() {
   };
 
   return (
+    <AuthGate>
     <div
       className="min-h-screen bg-background text-foreground overflow-hidden"
       style={{ fontFamily: "'DM Sans', sans-serif" }}
@@ -672,6 +674,7 @@ export default function App() {
         </Modal>
       )}
     </div>
+    </AuthGate>
   );
 }
 
@@ -1244,5 +1247,6 @@ function JourneyPage({
         )}
       </div>
     </div>
+    
   );
 }
