@@ -1,13 +1,16 @@
 
   import { createRoot } from "react-dom/client";
   import App from "./app/App";
+  import AuthGate from "./app/auth/AuthGate";
   import "./styles/index.css";
 
   import { AuthProvider } from "./firebase/AuthProvider";
 
 createRoot(document.getElementById("root")!).render(
   <AuthProvider>
-    <App />
+    <AuthGate>
+      <App />
+    </AuthGate>
   </AuthProvider>
 );
   if ("serviceWorker" in navigator) {

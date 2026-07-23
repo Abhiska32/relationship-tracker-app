@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import AuthGate from "./auth/AuthGate";
+import { loadSettings, saveSettings } from "../firebase/firestore";
 import {
   Heart,
   Music2,
@@ -205,6 +205,8 @@ export default function App() {
   const [startDate, setStartDate] = useState(() => load("startDate", "2023-01-15"));
   const [partnerName, setPartnerName] = useState(() => load("partnerName", "My Love"));
   const [partnerBirthday, setPartnerBirthday] = useState(() => load("partnerBirthday", ""));
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   // Memories
@@ -240,10 +242,44 @@ export default function App() {
   const [showPlaylist, setShowPlaylist] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  useEffect(() => {
+    async function fetchSettings() {
+      try {
+        const settings = await loadSettings();
+        if (settings) {
+          setPartnerName(settings.partnerName);
+          setStartDate(settings.startDate);
+          setPartnerBirthday(settings.partnerBirthday);
+        }
+      } catch {
+        // Keep local settings if Firestore is unavailable.
+      } finally {
+        setSettingsLoaded(true);
+      }
+    }
+
+    fetchSettings();
+  }, []);
+
   // Persist
   useEffect(() => { save("startDate", startDate); }, [startDate]);
   useEffect(() => { save("partnerName", partnerName); }, [partnerName]);
   useEffect(() => { save("partnerBirthday", partnerBirthday); }, [partnerBirthday]);
+  useEffect(() => {
+    if (!settingsLoaded || !settingsDirty) return;
+
+    saveSettings({
+      partnerName,
+      startDate,
+      partnerBirthday,
+    }).catch(() => {});
+  }, [
+    settingsLoaded,
+    settingsDirty,
+    partnerName,
+    startDate,
+    partnerBirthday,
+  ]);
   useEffect(() => { save("memories", memories); }, [memories]);
   useEffect(() => { save("journey", journey); }, [journey]);
 
@@ -346,7 +382,6 @@ export default function App() {
   };
 
   return (
-    <AuthGate>
     <div
       className="min-h-screen bg-background text-foreground overflow-hidden"
       style={{ fontFamily: "'DM Sans', sans-serif" }}
@@ -457,7 +492,10 @@ export default function App() {
               <input
                 className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                 value={partnerName}
-                onChange={(e) => setPartnerName(e.target.value)}
+                onChange={(e) => {
+                  setSettingsDirty(true);
+                  setPartnerName(e.target.value);
+                }}
                 placeholder="My Love"
               />
             </label>
@@ -469,7 +507,10 @@ export default function App() {
                 type="date"
                 className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {
+                  setSettingsDirty(true);
+                  setStartDate(e.target.value);
+                }}
               />
             </label>
             <label className="block">
@@ -480,7 +521,10 @@ export default function App() {
                 type="date"
                 className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
                 value={partnerBirthday}
-                onChange={(e) => setPartnerBirthday(e.target.value)}
+                onChange={(e) => {
+                  setSettingsDirty(true);
+                  setPartnerBirthday(e.target.value);
+                }}
               />
             </label>
             <button
@@ -674,7 +718,6 @@ export default function App() {
         </Modal>
       )}
     </div>
-    </AuthGate>
   );
 }
 

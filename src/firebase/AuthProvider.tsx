@@ -29,6 +29,13 @@ export function AuthProvider({
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
+      console.log("[AuthProvider] onAuthStateChanged", {
+        currentUser: u,
+        uid: u?.uid ?? null,
+        email: u?.email ?? null,
+        authCurrentUserIsNull: auth.currentUser === null,
+      });
+
       setUser(u);
       setLoading(false);
     });

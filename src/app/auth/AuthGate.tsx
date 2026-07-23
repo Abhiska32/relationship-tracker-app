@@ -6,7 +6,9 @@ import Denied from "./Denied";
 const allowedEmails = [
   import.meta.env.VITE_OWNER_EMAIL,
   import.meta.env.VITE_PARTNER_EMAIL,
-];
+]
+  .filter((email): email is string => Boolean(email))
+  .map((email) => email.toLowerCase());
 
 export default function AuthGate({
   children,
@@ -14,6 +16,14 @@ export default function AuthGate({
   children: ReactNode;
 }) {
   const { user, loading } = useAuth();
+
+  console.log("[AuthGate] render", {
+    loading,
+    currentAuthenticatedUser: user,
+    uid: user?.uid ?? null,
+    email: user?.email ?? null,
+    authContextUserIsNull: user === null,
+  });
 
   if (loading) {
     return (
@@ -34,7 +44,7 @@ export default function AuthGate({
     return <Login />;
   }
 
-  if (!allowedEmails.includes(user.email ?? "")) {
+  if (!allowedEmails.includes(user.email?.toLowerCase() ?? "")) {
     return <Denied />;
   }
 
