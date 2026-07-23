@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { loadSettings, saveSettings } from "../firebase/firestore";
+import {
+  deleteMemory,
+  deleteMilestone,
+  loadJourney,
+  loadMemories,
+  loadSettings,
+  saveMemory,
+  saveMilestone,
+  saveSettings,
+} from "../firebase/firestore";
 import {
   Heart,
   Music2,
@@ -113,10 +122,6 @@ const SONGS: Song[] = [
   },
 ];
 
-const DEFAULT_MEMORIES: Memory[] = [];
-
-const DEFAULT_JOURNEY: JourneyItem[] = [];
-
 function load<T>(key: string, def: T): T {
   try {
     const s = localStorage.getItem(key);
@@ -210,9 +215,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   // Memories
-  const [memories, setMemories] = useState<Memory[]>(() =>
-    load("memories", DEFAULT_MEMORIES)
-  );
+  const [memories, setMemories] = useState<Memory[]>([]);
   const [showAddMemory, setShowAddMemory] = useState(false);
   const [viewMemory, setViewMemory] = useState<Memory | null>(null);
   const [newMemory, setNewMemory] = useState({ imageUrl: "", caption: "", date: "" });
@@ -221,9 +224,7 @@ export default function App() {
   const memoryFileRef = useRef<HTMLInputElement>(null);
 
   // Journey
-  const [journey, setJourney] = useState<JourneyItem[]>(() =>
-    load("journey", DEFAULT_JOURNEY)
-  );
+  const [journey, setJourney] = useState<JourneyItem[]>([]);
   const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [newMilestone, setNewMilestone] = useState({
     date: "",
@@ -261,6 +262,48 @@ export default function App() {
     fetchSettings();
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchMemories() {
+      try {
+        const loadedMemories = await loadMemories();
+        if (isMounted) {
+          setMemories(loadedMemories);
+        }
+      } catch (error) {
+        console.error("[App] Could not load memories", error);
+      }
+    }
+
+    fetchMemories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchJourney() {
+      try {
+        const loadedJourney = await loadJourney();
+        if (isMounted) {
+          setJourney(loadedJourney);
+        }
+      } catch (error) {
+        console.error("[App] Could not load journey", error);
+      }
+    }
+
+    fetchJourney();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Persist
   useEffect(() => { save("startDate", startDate); }, [startDate]);
   useEffect(() => { save("partnerName", partnerName); }, [partnerName]);
@@ -280,8 +323,6 @@ export default function App() {
     startDate,
     partnerBirthday,
   ]);
-  useEffect(() => { save("memories", memories); }, [memories]);
-  useEffect(() => { save("journey", journey); }, [journey]);
 
   // Audio effects
   useEffect(() => {
@@ -327,7 +368,7 @@ export default function App() {
   const bdayDays = daysUntilBirthday(partnerBirthday);
   const progress = duration ? currentTime / duration : 0;
 
-  const addMemory = () => {
+  const addMemory = async () => {
     if (!newMemory.imageUrl || !newMemory.caption.trim()) return;
     const m: Memory = {
       id: Date.now().toString(),
@@ -335,8 +376,21 @@ export default function App() {
       caption: newMemory.caption.trim(),
       date: newMemory.date || new Date().toISOString().slice(0, 10),
     };
-    setMemories((prev) => [m, ...prev]);
-    closeAddMemory();
+
+    setIsAddingMemory(true);
+    setMemoryError("");
+    try {
+      await saveMemory(m);
+      setMemories((prev) =>
+        [m, ...prev].sort((a, b) => b.date.localeCompare(a.date))
+      );
+      closeAddMemory();
+    } catch (error) {
+      console.error("[App] Could not save memory", error);
+      setMemoryError("Could not save that memory. Try again.");
+    } finally {
+      setIsAddingMemory(false);
+    }
   };
 
   const closeAddMemory = () => {
@@ -365,7 +419,7 @@ export default function App() {
     }
   };
 
-  const addMilestone = () => {
+  const addMilestone = async () => {
     if (!newMilestone.title) return;
     const m: JourneyItem = {
       id: Date.now().toString(),
@@ -374,11 +428,17 @@ export default function App() {
       description: newMilestone.description,
       emoji: newMilestone.emoji || "💕",
     };
-    setJourney((prev) =>
-      [...prev, m].sort((a, b) => a.date.localeCompare(b.date))
-    );
-    setNewMilestone({ date: "", title: "", description: "", emoji: "💕" });
-    setShowAddMilestone(false);
+
+    try {
+      await saveMilestone(m);
+      setJourney((prev) =>
+        [...prev, m].sort((a, b) => a.date.localeCompare(b.date))
+      );
+      setNewMilestone({ date: "", title: "", description: "", emoji: "💕" });
+      setShowAddMilestone(false);
+    } catch (error) {
+      console.error("[App] Could not save milestone", error);
+    }
   };
 
   return (
@@ -432,14 +492,28 @@ export default function App() {
             memories={memories}
             onAdd={() => setShowAddMemory(true)}
             onView={setViewMemory}
-            onDelete={(id) => setMemories((prev) => prev.filter((m) => m.id !== id))}
+            onDelete={async (id) => {
+              try {
+                await deleteMemory(id);
+                setMemories((prev) => prev.filter((m) => m.id !== id));
+              } catch (error) {
+                console.error("[App] Could not delete memory", error);
+              }
+            }}
           />
         )}
         {page === "journey" && (
           <JourneyPage
             journey={journey}
             onAdd={() => setShowAddMilestone(true)}
-            onDelete={(id) => setJourney((prev) => prev.filter((m) => m.id !== id))}
+            onDelete={async (id) => {
+              try {
+                await deleteMilestone(id);
+                setJourney((prev) => prev.filter((m) => m.id !== id));
+              } catch (error) {
+                console.error("[App] Could not delete milestone", error);
+              }
+            }}
           />
         )}
       </div>

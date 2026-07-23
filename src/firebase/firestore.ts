@@ -1,7 +1,12 @@
 import {
+  collection,
+  deleteDoc,
   getFirestore,
   doc,
   getDoc,
+  getDocs,
+  orderBy,
+  query,
   setDoc,
 } from "firebase/firestore";
 import { auth } from "./auth";
@@ -12,6 +17,10 @@ export const db = getFirestore(app);
 
 const SETTINGS_PATH = "spaces/demo-space";
 const SETTINGS_DOC = doc(db, "spaces", "demo-space");
+const MEMORIES_PATH = "spaces/demo-space/memories";
+const MEMORIES_COLLECTION = collection(db, "spaces", "demo-space", "memories");
+const JOURNEY_PATH = "spaces/demo-space/journey";
+const JOURNEY_COLLECTION = collection(db, "spaces", "demo-space", "journey");
 
 export interface AppSettings {
   partnerName: string;
@@ -19,12 +28,27 @@ export interface AppSettings {
   partnerBirthday: string;
 }
 
-function logFirestoreRequest(operation: "read" | "write") {
+export interface Memory {
+  id: string;
+  imageUrl: string;
+  caption: string;
+  date: string;
+}
+
+export interface JourneyItem {
+  id: string;
+  date: string;
+  title: string;
+  description: string;
+  emoji: string;
+}
+
+function logFirestoreRequest(operation: string, path: string, label: string) {
   const currentUser = auth.currentUser;
 
-  console.log(`[Firestore] settings ${operation}`, {
+  console.log(`[Firestore] ${label} ${operation}`, {
     projectId: app.options.projectId,
-    path: SETTINGS_PATH,
+    path,
     currentAuthenticatedUser: currentUser,
     uid: currentUser?.uid ?? null,
     email: currentUser?.email ?? null,
@@ -33,13 +57,13 @@ function logFirestoreRequest(operation: "read" | "write") {
 
   if (!currentUser) {
     throw new Error(
-      `Cannot ${operation} ${SETTINGS_PATH} before Firebase Auth has an authenticated user.`
+      `Cannot ${operation} ${path} before Firebase Auth has an authenticated user.`
     );
   }
 }
 
 export async function loadSettings(): Promise<AppSettings | null> {
-  logFirestoreRequest("read");
+  logFirestoreRequest("read", SETTINGS_PATH, "settings");
 
   const snapshot = await getDoc(SETTINGS_DOC);
 
@@ -57,12 +81,104 @@ export async function loadSettings(): Promise<AppSettings | null> {
 }
 
 export async function saveSettings(data: AppSettings) {
-  logFirestoreRequest("write");
+  logFirestoreRequest("write", SETTINGS_PATH, "settings");
 
   await setDoc(SETTINGS_DOC, data, { merge: true });
 
   console.log("[Firestore] settings write complete", {
     projectId: app.options.projectId,
     path: SETTINGS_PATH,
+  });
+}
+
+export async function loadMemories(): Promise<Memory[]> {
+  logFirestoreRequest("loading memories", MEMORIES_PATH, "memories");
+
+  const snapshot = await getDocs(query(MEMORIES_COLLECTION, orderBy("date", "desc")));
+  const memories = snapshot.docs.map((memoryDoc) => ({
+    ...(memoryDoc.data() as Omit<Memory, "id">),
+    id: memoryDoc.id,
+  }));
+
+  console.log("[Firestore] loaded memories", {
+    projectId: app.options.projectId,
+    path: MEMORIES_PATH,
+    count: memories.length,
+  });
+
+  return memories;
+}
+
+export async function saveMemory(memory: Memory) {
+  const path = `${MEMORIES_PATH}/${memory.id}`;
+
+  logFirestoreRequest("saving memory", path, "memories");
+
+  await setDoc(doc(MEMORIES_COLLECTION, memory.id), memory, { merge: true });
+
+  console.log("[Firestore] saved memory", {
+    projectId: app.options.projectId,
+    path,
+    id: memory.id,
+  });
+}
+
+export async function deleteMemory(id: string) {
+  const path = `${MEMORIES_PATH}/${id}`;
+
+  logFirestoreRequest("deleting memory", path, "memories");
+
+  await deleteDoc(doc(MEMORIES_COLLECTION, id));
+
+  console.log("[Firestore] deleted memory", {
+    projectId: app.options.projectId,
+    path,
+    id,
+  });
+}
+
+export async function loadJourney(): Promise<JourneyItem[]> {
+  logFirestoreRequest("loading journey", JOURNEY_PATH, "journey");
+
+  const snapshot = await getDocs(query(JOURNEY_COLLECTION, orderBy("date", "asc")));
+  const journey = snapshot.docs.map((journeyDoc) => ({
+    ...(journeyDoc.data() as Omit<JourneyItem, "id">),
+    id: journeyDoc.id,
+  }));
+
+  console.log("[Firestore] loaded journey", {
+    projectId: app.options.projectId,
+    path: JOURNEY_PATH,
+    count: journey.length,
+  });
+
+  return journey;
+}
+
+export async function saveMilestone(milestone: JourneyItem) {
+  const path = `${JOURNEY_PATH}/${milestone.id}`;
+
+  logFirestoreRequest("saving milestone", path, "journey");
+
+  await setDoc(doc(JOURNEY_COLLECTION, milestone.id), milestone, { merge: true });
+
+  console.log("[Firestore] saved milestone", {
+    projectId: app.options.projectId,
+    path,
+    id: milestone.id,
+  });
+}
+
+export async function deleteMilestone(id: string) {
+  const path = `${JOURNEY_PATH}/${id}`;
+
+  logFirestoreRequest("deleting milestone", path, "journey");
+
+  await deleteDoc(doc(JOURNEY_COLLECTION, id));
+
+  console.log("[Firestore] deleted milestone", {
+    projectId: app.options.projectId,
+    path,
+    id,
   });
 }
