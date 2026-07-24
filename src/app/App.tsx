@@ -946,7 +946,7 @@ function HomePage({
             className="text-foreground/80 text-base leading-relaxed italic text-center"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
-            "In all the world, there is no heart for me like yours. In all the world, there is no love for you like mine."
+            "I thought I was going to be a good boyfriend. But I've realized I'm overly protective and possessive. I want you all to myself because I'm terrified of losing you. I can't stand the thought of you looking at or admiring other guys besides me."
           </p>
         </div>
       </div>
