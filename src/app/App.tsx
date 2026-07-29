@@ -35,6 +35,7 @@ import {
   ExternalLink,
   ShoppingCart,
   ChevronUp,
+  Pencil,
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -185,35 +186,16 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function compressImage(file: File, maxSize = 1200, quality = 0.85): Promise<string> {
+function readImageFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = Math.round((height / width) * maxSize);
-            width = maxSize;
-          } else {
-            width = Math.round((width / height) * maxSize);
-            height = maxSize;
-          }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("Could not process image"));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = () => reject(new Error("Could not load image"));
-      img.src = e.target?.result as string;
+      const result = e.target?.result;
+      if (typeof result === "string") {
+        resolve(result);
+      } else {
+        reject(new Error("Could not read image"));
+      }
     };
     reader.onerror = () => reject(new Error("Could not read file"));
     reader.readAsDataURL(file);
@@ -253,6 +235,7 @@ export default function App() {
   // Shopping cart
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [showAddCartItem, setShowAddCartItem] = useState(false);
+  const [showEditCartItem, setShowEditCartItem] = useState(false);
   const [newCartItem, setNewCartItem] = useState({
     imageUrl: "",
     name: "",
@@ -260,9 +243,20 @@ export default function App() {
     description: "",
     urls: "",
   });
+  const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
+  const [editedCartItem, setEditedCartItem] = useState({
+    imageUrl: "",
+    name: "",
+    category: "General",
+    description: "",
+    urls: "",
+  });
   const [isAddingCartItem, setIsAddingCartItem] = useState(false);
+  const [isSavingEditedCartItem, setIsSavingEditedCartItem] = useState(false);
   const [cartError, setCartError] = useState("");
+  const [editCartError, setEditCartError] = useState("");
   const cartFileRef = useRef<HTMLInputElement>(null);
+  const cartEditFileRef = useRef<HTMLInputElement>(null);
 
   // Music
   const [songIndex, setSongIndex] = useState(0);
@@ -420,6 +414,27 @@ export default function App() {
   const bdayDays = daysUntilBirthday(partnerBirthday);
   const progress = duration ? currentTime / duration : 0;
 
+  const cartCategoryOptions = useMemo(() => {
+    const options = new Set<string>([
+      "General",
+      "Clothes",
+      "Cosmetics",
+      "Health Care",
+      "Accessories",
+      "Gifts",
+    ]);
+
+    cartItems.forEach((item) => {
+      const value = item.category?.trim();
+      if (value) options.add(value);
+    });
+
+    if (newCartItem.category?.trim()) options.add(newCartItem.category.trim());
+    if (editedCartItem.category?.trim()) options.add(editedCartItem.category.trim());
+
+    return Array.from(options).sort((a, b) => a.localeCompare(b));
+  }, [cartItems, newCartItem.category, editedCartItem.category]);
+
   const addMemory = async () => {
     if (!newMemory.imageUrl || !newMemory.caption.trim()) return;
     const m: Memory = {
@@ -462,7 +477,7 @@ export default function App() {
     setMemoryError("");
     setIsAddingMemory(true);
     try {
-      const dataUrl = await compressImage(file);
+      const dataUrl = await readImageFile(file);
       setNewMemory((p) => ({ ...p, imageUrl: dataUrl }));
     } catch {
       setMemoryError("Could not load that image. Try another file.");
@@ -471,17 +486,72 @@ export default function App() {
     }
   };
 
+  const parseCartUrls = (value: string) =>
+    value
+      .split(/\r?\n/)
+      .map((url) => url.trim())
+      .filter(Boolean);
+
+  const getSuggestedCartCategory = () => {
+    const existingCategory = cartItems
+      .map((item) => item.category?.trim())
+      .find((value) => Boolean(value) && value !== "General");
+
+    return existingCategory || "General";
+  };
+
+  const openAddCartItem = () => {
+    setNewCartItem((prev) => ({
+      ...prev,
+      imageUrl: "",
+      name: "",
+      category: getSuggestedCartCategory(),
+      description: "",
+      urls: "",
+    }));
+    setCartError("");
+    setShowAddCartItem(true);
+  };
+
   const closeAddCartItem = () => {
     setShowAddCartItem(false);
-    setNewCartItem({
+    setNewCartItem((prev) => ({
+      ...prev,
+      imageUrl: "",
+      name: "",
+      category: prev.category || getSuggestedCartCategory(),
+      description: "",
+      urls: "",
+    }));
+    setCartError("");
+    if (cartFileRef.current) cartFileRef.current.value = "";
+  };
+
+  const openEditCartItem = (item: CartItem) => {
+    setEditingCartItem(item);
+    setEditedCartItem({
+      imageUrl: item.imageUrl,
+      name: item.name,
+      category: item.category,
+      description: item.description,
+      urls: item.urls.join("\n"),
+    });
+    setEditCartError("");
+    setShowEditCartItem(true);
+  };
+
+  const closeEditCartItem = () => {
+    setShowEditCartItem(false);
+    setEditingCartItem(null);
+    setEditedCartItem({
       imageUrl: "",
       name: "",
       category: "General",
       description: "",
       urls: "",
     });
-    setCartError("");
-    if (cartFileRef.current) cartFileRef.current.value = "";
+    setEditCartError("");
+    if (cartEditFileRef.current) cartEditFileRef.current.value = "";
   };
 
   const handleCartImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -494,12 +564,31 @@ export default function App() {
     setCartError("");
     setIsAddingCartItem(true);
     try {
-      const dataUrl = await compressImage(file);
+      const dataUrl = await readImageFile(file);
       setNewCartItem((p) => ({ ...p, imageUrl: dataUrl }));
     } catch {
       setCartError("Could not load that image. Try another file.");
     } finally {
       setIsAddingCartItem(false);
+    }
+  };
+
+  const handleCartEditImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setEditCartError("Please choose an image file.");
+      return;
+    }
+    setEditCartError("");
+    setIsSavingEditedCartItem(true);
+    try {
+      const dataUrl = await readImageFile(file);
+      setEditedCartItem((p) => ({ ...p, imageUrl: dataUrl }));
+    } catch {
+      setEditCartError("Could not load that image. Try another file.");
+    } finally {
+      setIsSavingEditedCartItem(false);
     }
   };
 
@@ -511,10 +600,7 @@ export default function App() {
       name: newCartItem.name.trim(),
       category: newCartItem.category.trim() || "General",
       description: newCartItem.description.trim(),
-      urls: newCartItem.urls
-        .split(/\r?\n/)
-        .map((url) => url.trim())
-        .filter(Boolean),
+      urls: parseCartUrls(newCartItem.urls),
       createdAt: new Date().toISOString(),
     };
 
@@ -531,6 +617,34 @@ export default function App() {
       setCartError("Could not save that item. Try again.");
     } finally {
       setIsAddingCartItem(false);
+    }
+  };
+
+  const saveEditedCartItem = async () => {
+    if (!editingCartItem || !editedCartItem.imageUrl || !editedCartItem.name.trim()) return;
+
+    const updatedItem: CartItem = {
+      ...editingCartItem,
+      imageUrl: editedCartItem.imageUrl,
+      name: editedCartItem.name.trim(),
+      category: editedCartItem.category.trim() || "General",
+      description: editedCartItem.description.trim(),
+      urls: parseCartUrls(editedCartItem.urls),
+    };
+
+    setIsSavingEditedCartItem(true);
+    setEditCartError("");
+    try {
+      await saveCartItem(updatedItem);
+      setCartItems((prev) =>
+        prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
+      );
+      closeEditCartItem();
+    } catch (error) {
+      console.error("[App] Could not update cart item", error);
+      setEditCartError("Could not update that item. Try again.");
+    } finally {
+      setIsSavingEditedCartItem(false);
     }
   };
 
@@ -634,7 +748,8 @@ export default function App() {
         {page === "cart" && (
           <CartPage
             items={cartItems}
-            onAdd={() => setShowAddCartItem(true)}
+            onAdd={openAddCartItem}
+            onEdit={openEditCartItem}
             onDelete={async (id) => {
               try {
                 await deleteCartItem(id);
@@ -922,6 +1037,122 @@ export default function App() {
         </Modal>
       )}
 
+      {/* Edit Cart Item Modal */}
+      {showEditCartItem && editingCartItem && (
+        <Modal onClose={closeEditCartItem} title="Edit Item">
+          <div className="space-y-4">
+            <input
+              ref={cartEditFileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleCartEditImageSelect}
+            />
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Image
+              </span>
+              {editedCartItem.imageUrl ? (
+                <div className="relative rounded-2xl overflow-hidden bg-muted">
+                  <img
+                    src={editedCartItem.imageUrl}
+                    alt="Edited cart item"
+                    className="w-full aspect-[4/3] object-contain bg-background/70 p-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditedCartItem((p) => ({ ...p, imageUrl: "" }));
+                      if (cartEditFileRef.current) cartEditFileRef.current.value = "";
+                    }}
+                    className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => cartEditFileRef.current?.click()}
+                  disabled={isSavingEditedCartItem}
+                  className="w-full rounded-2xl border-2 border-dashed border-border bg-muted/50 py-10 flex flex-col items-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors disabled:opacity-60"
+                >
+                  <Camera size={28} className="text-primary" />
+                  <span className="text-sm font-medium">
+                    {isSavingEditedCartItem ? "Loading image..." : "Choose an image"}
+                  </span>
+                </button>
+              )}
+            </label>
+            {editCartError && (
+              <p className="text-xs text-destructive">{editCartError}</p>
+            )}
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Name
+              </span>
+              <input
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
+                value={editedCartItem.name}
+                onChange={(e) => setEditedCartItem((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Gift idea"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Category
+              </span>
+              <input
+                list="cart-edit-category-options"
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
+                value={editedCartItem.category}
+                onChange={(e) =>
+                  setEditedCartItem((p) => ({ ...p, category: e.target.value }))
+                }
+              />
+              <datalist id="cart-edit-category-options">
+                {cartCategoryOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Description
+              </span>
+              <textarea
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm resize-none"
+                rows={3}
+                value={editedCartItem.description}
+                onChange={(e) =>
+                  setEditedCartItem((p) => ({ ...p, description: e.target.value }))
+                }
+                placeholder="Why this belongs here..."
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                URLs
+              </span>
+              <textarea
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm resize-none"
+                rows={3}
+                value={editedCartItem.urls}
+                onChange={(e) => setEditedCartItem((p) => ({ ...p, urls: e.target.value }))}
+                placeholder="Paste one link per line"
+              />
+            </label>
+            <button
+              onClick={saveEditedCartItem}
+              disabled={!editedCartItem.imageUrl || !editedCartItem.name.trim() || isSavingEditedCartItem}
+              className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-medium text-sm active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100"
+            >
+              Save Changes
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {/* Add Cart Item Modal */}
       {showAddCartItem && (
         <Modal onClose={closeAddCartItem} title="Add to Cart">
@@ -942,7 +1173,7 @@ export default function App() {
                   <img
                     src={newCartItem.imageUrl}
                     alt="Selected cart item"
-                    className="w-full aspect-[4/3] object-cover"
+                    className="w-full aspect-[4/3] object-contain bg-background/70 p-2"
                   />
                   <button
                     type="button"
@@ -994,15 +1225,11 @@ export default function App() {
                 onChange={(e) =>
                   setNewCartItem((p) => ({ ...p, category: e.target.value }))
                 }
-                placeholder="Clothes, cosmetics, health care..."
               />
               <datalist id="cart-category-options">
-                <option value="General" />
-                <option value="Clothes" />
-                <option value="Cosmetics" />
-                <option value="Health Care" />
-                <option value="Accessories" />
-                <option value="Gifts" />
+                {cartCategoryOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
               </datalist>
             </label>
             <label className="block">
@@ -1606,10 +1833,12 @@ function MemoriesPage({
 function CartPage({
   items,
   onAdd,
+  onEdit,
   onDelete,
 }: {
   items: CartItem[];
   onAdd: () => void;
+  onEdit: (item: CartItem) => void;
   onDelete: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -1618,6 +1847,14 @@ function CartPage({
   const getHref = (url: string) =>
     /^https?:\/\//i.test(url) ? url : `https://${url}`;
   const getCategory = (category: string) => category.trim() || "General";
+  const getUrlLabel = (url: string) => {
+    try {
+      const parsed = new URL(getHref(url));
+      return parsed.hostname + (parsed.pathname !== "/" ? parsed.pathname : "");
+    } catch {
+      return url;
+    }
+  };
   const categories = useMemo(
     () => [
       "All",
@@ -1721,7 +1958,7 @@ function CartPage({
                   <img
                     src={item.imageUrl}
                     alt={item.name}
-                    className="w-24 h-24 rounded-xl object-cover bg-muted flex-shrink-0"
+                    className="w-24 h-24 rounded-xl object-contain bg-muted p-1 flex-shrink-0"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
@@ -1731,14 +1968,24 @@ function CartPage({
                       >
                         {item.name}
                       </h3>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(item.id)}
-                        className="text-muted-foreground hover:text-destructive flex-shrink-0"
-                        aria-label={`Delete ${item.name}`}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onEdit(item)}
+                          className="text-muted-foreground hover:text-primary"
+                          aria-label={`Edit ${item.name}`}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(item.id)}
+                          className="text-muted-foreground hover:text-destructive"
+                          aria-label={`Delete ${item.name}`}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
 
                     <p className="mt-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
@@ -1775,10 +2022,11 @@ function CartPage({
                             href={getHref(url)}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-1.5 text-xs text-primary break-all"
+                            className="flex items-center gap-1.5 text-xs text-primary min-w-0"
+                            title={url}
                           >
                             <ExternalLink size={13} className="flex-shrink-0" />
-                            <span>{url}</span>
+                            <span className="truncate">{getUrlLabel(url)}</span>
                           </a>
                         ))}
                       </div>
