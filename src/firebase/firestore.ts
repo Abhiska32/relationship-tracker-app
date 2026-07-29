@@ -21,6 +21,8 @@ const MEMORIES_PATH = "spaces/demo-space/memories";
 const MEMORIES_COLLECTION = collection(db, "spaces", "demo-space", "memories");
 const JOURNEY_PATH = "spaces/demo-space/journey";
 const JOURNEY_COLLECTION = collection(db, "spaces", "demo-space", "journey");
+const CART_PATH = "spaces/demo-space/cart";
+const CART_COLLECTION = collection(db, "spaces", "demo-space", "cart");
 
 export interface AppSettings {
   partnerName: string;
@@ -41,6 +43,22 @@ export interface JourneyItem {
   title: string;
   description: string;
   emoji: string;
+}
+
+export interface CartItem {
+  id: string;
+  imageUrl: string;
+  name: string;
+  category: string;
+  description: string;
+  urls: string[];
+  createdAt: string;
+}
+
+function getCartCategory(category: unknown) {
+  return typeof category === "string" && category.trim()
+    ? category.trim()
+    : "General";
 }
 
 function logFirestoreRequest(operation: string, path: string, label: string) {
@@ -177,6 +195,58 @@ export async function deleteMilestone(id: string) {
   await deleteDoc(doc(JOURNEY_COLLECTION, id));
 
   console.log("[Firestore] deleted milestone", {
+    projectId: app.options.projectId,
+    path,
+    id,
+  });
+}
+
+export async function loadCartItems(): Promise<CartItem[]> {
+  logFirestoreRequest("loading cart", CART_PATH, "cart");
+
+  const snapshot = await getDocs(query(CART_COLLECTION, orderBy("createdAt", "desc")));
+  const cartItems = snapshot.docs.map((cartDoc) => {
+    const data = cartDoc.data() as Omit<CartItem, "id">;
+
+    return {
+      ...data,
+      id: cartDoc.id,
+      category: getCartCategory(data.category),
+      urls: Array.isArray(data.urls) ? data.urls : [],
+    };
+  });
+
+  console.log("[Firestore] loaded cart", {
+    projectId: app.options.projectId,
+    path: CART_PATH,
+    count: cartItems.length,
+  });
+
+  return cartItems;
+}
+
+export async function saveCartItem(item: CartItem) {
+  const path = `${CART_PATH}/${item.id}`;
+
+  logFirestoreRequest("saving cart item", path, "cart");
+
+  await setDoc(doc(CART_COLLECTION, item.id), item, { merge: true });
+
+  console.log("[Firestore] saved cart item", {
+    projectId: app.options.projectId,
+    path,
+    id: item.id,
+  });
+}
+
+export async function deleteCartItem(id: string) {
+  const path = `${CART_PATH}/${id}`;
+
+  logFirestoreRequest("deleting cart item", path, "cart");
+
+  await deleteDoc(doc(CART_COLLECTION, id));
+
+  console.log("[Firestore] deleted cart item", {
     projectId: app.options.projectId,
     path,
     id,

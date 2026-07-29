@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
+  deleteCartItem,
   deleteMemory,
   deleteMilestone,
+  loadCartItems,
   loadJourney,
   loadMemories,
   loadSettings,
+  saveCartItem,
   saveMemory,
   saveMilestone,
   saveSettings,
@@ -27,11 +30,15 @@ import {
   Volume2,
   VolumeX,
   Camera,
+  ChevronDown,
   Home,
+  ExternalLink,
+  ShoppingCart,
+  ChevronUp,
 } from "lucide-react";
 import { motion } from "motion/react";
 
-type Page = "home" | "music" | "memories" | "journey";
+type Page = "home" | "music" | "memories" | "journey" | "cart";
 
 interface Memory {
   id: string;
@@ -46,6 +53,16 @@ interface JourneyItem {
   title: string;
   description: string;
   emoji: string;
+}
+
+interface CartItem {
+  id: string;
+  imageUrl: string;
+  name: string;
+  category: string;
+  description: string;
+  urls: string[];
+  createdAt: string;
 }
 
 interface Song {
@@ -233,6 +250,20 @@ export default function App() {
     emoji: "💕",
   });
 
+  // Shopping cart
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [showAddCartItem, setShowAddCartItem] = useState(false);
+  const [newCartItem, setNewCartItem] = useState({
+    imageUrl: "",
+    name: "",
+    category: "General",
+    description: "",
+    urls: "",
+  });
+  const [isAddingCartItem, setIsAddingCartItem] = useState(false);
+  const [cartError, setCartError] = useState("");
+  const cartFileRef = useRef<HTMLInputElement>(null);
+
   // Music
   const [songIndex, setSongIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -298,6 +329,27 @@ export default function App() {
     }
 
     fetchJourney();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchCartItems() {
+      try {
+        const loadedCartItems = await loadCartItems();
+        if (isMounted) {
+          setCartItems(loadedCartItems);
+        }
+      } catch (error) {
+        console.error("[App] Could not load cart items", error);
+      }
+    }
+
+    fetchCartItems();
 
     return () => {
       isMounted = false;
@@ -419,6 +471,69 @@ export default function App() {
     }
   };
 
+  const closeAddCartItem = () => {
+    setShowAddCartItem(false);
+    setNewCartItem({
+      imageUrl: "",
+      name: "",
+      category: "General",
+      description: "",
+      urls: "",
+    });
+    setCartError("");
+    if (cartFileRef.current) cartFileRef.current.value = "";
+  };
+
+  const handleCartImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setCartError("Please choose an image file.");
+      return;
+    }
+    setCartError("");
+    setIsAddingCartItem(true);
+    try {
+      const dataUrl = await compressImage(file);
+      setNewCartItem((p) => ({ ...p, imageUrl: dataUrl }));
+    } catch {
+      setCartError("Could not load that image. Try another file.");
+    } finally {
+      setIsAddingCartItem(false);
+    }
+  };
+
+  const addCartItem = async () => {
+    if (!newCartItem.imageUrl || !newCartItem.name.trim()) return;
+    const item: CartItem = {
+      id: Date.now().toString(),
+      imageUrl: newCartItem.imageUrl,
+      name: newCartItem.name.trim(),
+      category: newCartItem.category.trim() || "General",
+      description: newCartItem.description.trim(),
+      urls: newCartItem.urls
+        .split(/\r?\n/)
+        .map((url) => url.trim())
+        .filter(Boolean),
+      createdAt: new Date().toISOString(),
+    };
+
+    setIsAddingCartItem(true);
+    setCartError("");
+    try {
+      await saveCartItem(item);
+      setCartItems((prev) =>
+        [item, ...prev].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      );
+      closeAddCartItem();
+    } catch (error) {
+      console.error("[App] Could not save cart item", error);
+      setCartError("Could not save that item. Try again.");
+    } finally {
+      setIsAddingCartItem(false);
+    }
+  };
+
   const addMilestone = async () => {
     if (!newMilestone.title) return;
     const m: JourneyItem = {
@@ -516,6 +631,20 @@ export default function App() {
             }}
           />
         )}
+        {page === "cart" && (
+          <CartPage
+            items={cartItems}
+            onAdd={() => setShowAddCartItem(true)}
+            onDelete={async (id) => {
+              try {
+                await deleteCartItem(id);
+                setCartItems((prev) => prev.filter((item) => item.id !== id));
+              } catch (error) {
+                console.error("[App] Could not delete cart item", error);
+              }
+            }}
+          />
+        )}
       </div>
 
       {/* Bottom nav */}
@@ -527,6 +656,7 @@ export default function App() {
               { id: "music", icon: Music2, label: "Music" },
               { id: "memories", icon: BookImage, label: "Us" },
               { id: "journey", icon: Milestone, label: "Journey" },
+              { id: "cart", icon: ShoppingCart, label: "Cart" },
             ] as const
           ).map(({ id, icon: Icon, label }) => (
             <button
@@ -791,6 +921,126 @@ export default function App() {
           </div>
         </Modal>
       )}
+
+      {/* Add Cart Item Modal */}
+      {showAddCartItem && (
+        <Modal onClose={closeAddCartItem} title="Add to Cart">
+          <div className="space-y-4">
+            <input
+              ref={cartFileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleCartImageSelect}
+            />
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Image
+              </span>
+              {newCartItem.imageUrl ? (
+                <div className="relative rounded-2xl overflow-hidden bg-muted">
+                  <img
+                    src={newCartItem.imageUrl}
+                    alt="Selected cart item"
+                    className="w-full aspect-[4/3] object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewCartItem((p) => ({ ...p, imageUrl: "" }));
+                      if (cartFileRef.current) cartFileRef.current.value = "";
+                    }}
+                    className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => cartFileRef.current?.click()}
+                  disabled={isAddingCartItem}
+                  className="w-full rounded-2xl border-2 border-dashed border-border bg-muted/50 py-10 flex flex-col items-center gap-2 text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors disabled:opacity-60"
+                >
+                  <Camera size={28} className="text-primary" />
+                  <span className="text-sm font-medium">
+                    {isAddingCartItem ? "Loading image..." : "Choose an image"}
+                  </span>
+                </button>
+              )}
+            </label>
+            {cartError && (
+              <p className="text-xs text-destructive">{cartError}</p>
+            )}
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Name
+              </span>
+              <input
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
+                value={newCartItem.name}
+                onChange={(e) => setNewCartItem((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Gift idea"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Category
+              </span>
+              <input
+                list="cart-category-options"
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm"
+                value={newCartItem.category}
+                onChange={(e) =>
+                  setNewCartItem((p) => ({ ...p, category: e.target.value }))
+                }
+                placeholder="Clothes, cosmetics, health care..."
+              />
+              <datalist id="cart-category-options">
+                <option value="General" />
+                <option value="Clothes" />
+                <option value="Cosmetics" />
+                <option value="Health Care" />
+                <option value="Accessories" />
+                <option value="Gifts" />
+              </datalist>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                Description
+              </span>
+              <textarea
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm resize-none"
+                rows={3}
+                value={newCartItem.description}
+                onChange={(e) =>
+                  setNewCartItem((p) => ({ ...p, description: e.target.value }))
+                }
+                placeholder="Why this belongs here..."
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1.5 block">
+                URLs
+              </span>
+              <textarea
+                className="w-full bg-muted rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary/40 text-sm resize-none"
+                rows={3}
+                value={newCartItem.urls}
+                onChange={(e) => setNewCartItem((p) => ({ ...p, urls: e.target.value }))}
+                placeholder="Paste one link per line"
+              />
+            </label>
+            <button
+              onClick={addCartItem}
+              disabled={!newCartItem.imageUrl || !newCartItem.name.trim() || isAddingCartItem}
+              className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-medium text-sm active:scale-95 transition-transform disabled:opacity-50 disabled:active:scale-100"
+            >
+              Add to Cart
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -808,7 +1058,7 @@ function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-card rounded-t-3xl p-6 shadow-2xl z-10">
+      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto bg-card rounded-t-3xl p-6 shadow-2xl z-10">
         <div className="flex items-center justify-between mb-5">
           <h2
             className="text-xl font-semibold text-foreground"
@@ -948,6 +1198,7 @@ function HomePage({
           >
             "I thought I was going to be a good boyfriend. But I've realized I'm overly protective and possessive. I want you all to myself because I'm terrified of losing you. I can't stand the thought of you looking at or admiring other guys besides me."
           </p>
+          
         </div>
       </div>
 
@@ -1177,9 +1428,21 @@ function MemoriesPage({
   onView: (m: Memory) => void;
   onDelete: (id: string) => void;
 }) {
+  const [viewMode, setViewMode] = useState<"gallery" | "list">("gallery");
+  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
+  const sortedMemories = useMemo(
+    () =>
+      [...memories].sort((a, b) =>
+        sortDirection === "asc"
+          ? a.date.localeCompare(b.date)
+          : b.date.localeCompare(a.date)
+      ),
+    [memories, sortDirection]
+  );
+
   return (
     <div className="min-h-screen">
-      <div className="flex items-center justify-between px-6 pt-12 pb-4">
+      <div className="flex items-center justify-between px-6 pt-12 pb-3">
         <div>
           <h1
             className="text-2xl text-foreground"
@@ -1199,6 +1462,46 @@ function MemoriesPage({
         </button>
       </div>
 
+      {memories.length > 0 && (
+        <div className="px-4 pb-4 flex items-center justify-between gap-3">
+          <div className="flex rounded-full bg-muted p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode("gallery")}
+              className={`h-8 w-10 rounded-full flex items-center justify-center transition-colors ${
+                viewMode === "gallery"
+                  ? "bg-card text-primary shadow-sm"
+                  : "text-muted-foreground"
+              }`}
+              aria-label="Gallery view"
+            >
+              <BookImage size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={`h-8 w-10 rounded-full flex items-center justify-center transition-colors ${
+                viewMode === "list"
+                  ? "bg-card text-primary shadow-sm"
+                  : "text-muted-foreground"
+              }`}
+              aria-label="List view"
+            >
+              <List size={16} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSortDirection((d) => (d === "desc" ? "asc" : "desc"))}
+            className="h-9 rounded-full bg-muted px-3 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+          >
+            {sortDirection === "desc" ? "Newest" : "Oldest"}
+            {sortDirection === "desc" ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+        </div>
+      )}
+
       {memories.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
           <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center text-3xl mb-4">
@@ -1214,31 +1517,25 @@ function MemoriesPage({
             Tap + to add a photo from your gallery
           </p>
         </div>
-      ) : (
-        <div className="px-4 grid grid-cols-2 gap-3">
-          {memories.map((m) => (
-            <div key={m.id} className="relative group">
-              <button
-                onClick={() => onView(m)}
-                className="w-full rounded-2xl overflow-hidden bg-muted shadow-sm"
-              >
+      ) : viewMode === "gallery" ? (
+        <div className="px-4 grid grid-cols-3 gap-2">
+          {sortedMemories.map((m) => (
+            <div key={m.id} className="relative group rounded-xl overflow-hidden bg-muted shadow-sm">
+              <button onClick={() => onView(m)} className="w-full block text-left">
                 <img
                   src={m.imageUrl}
                   alt={m.caption}
-                  className="w-full aspect-[3/4] object-cover"
+                  className="w-full aspect-square object-cover"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src =
-                      "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&h=400&fit=crop&auto=format";
+                      "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&h=300&fit=crop&auto=format";
                   }}
                 />
-                <div className="p-3 bg-card">
-                  <p
-                    className="text-sm text-foreground leading-snug"
-                    style={{ fontFamily: "'Playfair Display', serif" }}
-                  >
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-2">
+                  <p className="text-white text-[11px] leading-tight line-clamp-2">
                     {m.caption}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
+                  <p className="text-white/70 text-[9px] mt-0.5">
                     {formatDate(m.date)}
                   </p>
                 </div>
@@ -1249,13 +1546,248 @@ function MemoriesPage({
                   e.stopPropagation();
                   onDelete(m.id);
                 }}
-                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-destructive text-white flex items-center justify-center shadow-md"
+                className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/55 text-white flex items-center justify-center shadow-md"
                 aria-label={`Delete memory ${m.caption}`}
               >
-                <Trash2 size={13} />
+                <Trash2 size={12} />
               </button>
             </div>
           ))}
+        </div>
+      ) : (
+        <div className="px-4 space-y-2">
+          {sortedMemories.map((m) => (
+            <div key={m.id} className="bg-card rounded-2xl border border-border p-2 flex gap-3 shadow-sm">
+              <button
+                onClick={() => onView(m)}
+                className="w-20 h-20 rounded-xl overflow-hidden bg-muted flex-shrink-0"
+              >
+                <img
+                  src={m.imageUrl}
+                  alt={m.caption}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src =
+                      "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=160&h=160&fit=crop&auto=format";
+                  }}
+                />
+              </button>
+              <button
+                onClick={() => onView(m)}
+                className="flex-1 min-w-0 text-left py-1"
+              >
+                <p
+                  className="text-sm text-foreground leading-snug break-words"
+                  style={{ fontFamily: "'Playfair Display', serif" }}
+                >
+                  {m.caption}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {formatDate(m.date)}
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(m.id)}
+                className="w-8 h-8 rounded-full text-muted-foreground hover:text-destructive flex items-center justify-center flex-shrink-0"
+                aria-label={`Delete memory ${m.caption}`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Cart Page ────────────────────────────────────────────────────────────────
+function CartPage({
+  items,
+  onAdd,
+  onDelete,
+}: {
+  items: CartItem[];
+  onAdd: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [selectedCategory, setSelectedCategory] = useState("All");
+
+  const getHref = (url: string) =>
+    /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const getCategory = (category: string) => category.trim() || "General";
+  const categories = useMemo(
+    () => [
+      "All",
+      ...Array.from(new Set(items.map((item) => getCategory(item.category)))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    ],
+    [items]
+  );
+  const visibleItems = useMemo(
+    () =>
+      selectedCategory === "All"
+        ? items
+        : items.filter((item) => getCategory(item.category) === selectedCategory),
+    [items, selectedCategory]
+  );
+
+  useEffect(() => {
+    if (!categories.includes(selectedCategory)) {
+      setSelectedCategory("All");
+    }
+  }, [categories, selectedCategory]);
+
+  return (
+    <div className="min-h-screen">
+      <div className="flex items-center justify-between px-6 pt-12 pb-4">
+        <div>
+          <h1
+            className="text-2xl text-foreground"
+            style={{ fontFamily: "'Playfair Display', serif" }}
+          >
+            Shopping Cart
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {visibleItems.length} of {items.length} items
+          </p>
+        </div>
+        <button
+          onClick={onAdd}
+          className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
+        >
+          <Plus size={20} />
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center text-3xl mb-4">
+            🛒
+          </div>
+          <p
+            className="text-lg text-foreground/70 mb-2"
+            style={{ fontFamily: "'Playfair Display', serif" }}
+          >
+            Nothing in the cart yet
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Tap + to add an image, name, and links
+          </p>
+        </div>
+      ) : (
+        <div className="px-4 space-y-3">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {categories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setSelectedCategory(category)}
+                className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
+                  selectedCategory === category
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-muted-foreground border-border"
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          {visibleItems.length === 0 ? (
+            <div className="py-16 text-center">
+              <p
+                className="text-lg text-foreground/70 mb-2"
+                style={{ fontFamily: "'Playfair Display', serif" }}
+              >
+                No items here yet
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Add something to {selectedCategory}
+              </p>
+            </div>
+          ) : visibleItems.map((item) => {
+            const isExpanded = expanded[item.id] ?? false;
+            const category = getCategory(item.category);
+            return (
+              <div
+                key={item.id}
+                className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm"
+              >
+                <div className="flex gap-3 p-3">
+                  <img
+                    src={item.imageUrl}
+                    alt={item.name}
+                    className="w-24 h-24 rounded-xl object-cover bg-muted flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3
+                        className="text-base font-semibold text-foreground leading-snug break-words"
+                        style={{ fontFamily: "'Playfair Display', serif" }}
+                      >
+                        {item.name}
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(item.id)}
+                        className="text-muted-foreground hover:text-destructive flex-shrink-0"
+                        aria-label={`Delete ${item.name}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+
+                    <p className="mt-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+                      {category}
+                    </p>
+
+                    {item.description && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpanded((prev) => ({
+                            ...prev,
+                            [item.id]: !isExpanded,
+                          }))
+                        }
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary"
+                      >
+                        {isExpanded ? "Hide description" : "Show description"}
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    )}
+
+                    {isExpanded && item.description && (
+                      <p className="text-sm text-muted-foreground leading-relaxed mt-2 break-words">
+                        {item.description}
+                      </p>
+                    )}
+
+                    {item.urls.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        {item.urls.map((url) => (
+                          <a
+                            key={url}
+                            href={getHref(url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1.5 text-xs text-primary break-all"
+                          >
+                            <ExternalLink size={13} className="flex-shrink-0" />
+                            <span>{url}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
