@@ -1363,7 +1363,7 @@ function HomePage({
           </p>
           <div
             className="text-8xl font-bold text-primary-foreground leading-none mb-3"
-            style={{ fontFamily: "'Playfair Display', serif" }}
+            style={{ fontFamily: "'Fraunces', serif" }}
           >
             {daysCount}
           </div>
@@ -1423,7 +1423,7 @@ function HomePage({
             className="text-foreground/80 text-base leading-relaxed italic text-center"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
-            "I thought I was going to be a good boyfriend. But I've realized I'm overly protective and possessive. I want you all to myself because I'm terrified of losing you. I can't stand the thought of you looking at or admiring other guys besides me."
+            "In all the world, there is no heart for me like yours. In all the world, there is no love for you like mine."
           </p>
           
         </div>
